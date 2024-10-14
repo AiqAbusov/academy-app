@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Private WebSocket Chat</title>
+    <!-- Load SockJS and StompJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        /* Basic styling for chat window */
+        #chat {
+            width: 400px;
+            height: 300px;
+            border: 1px solid #ccc;
+            overflow-y: scroll;
+            margin-bottom: 10px;
+        }
+        #chat ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        #chat li {
+            padding: 5px;
+            margin: 2px 0;
+            background-color: #f1f1f1;
+            border-radius: 5px;
+        }
+        #nameInput, #recipientInput, #messageInput {
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+<h2>Private WebSocket Chat</h2>
+
+<!-- Input for user name -->
+<input type="text" id="nameInput" placeholder="Enter your name" />
+<button onclick="connect()">Join Chat</button>
+<br><br>
+
+<!-- Chat messages container -->
+<div id="chat">
+    <ul id="messageList"></ul>
+</div>
+
+<!-- Message input fields -->
+<input type="text" id="messageInput" placeholder="Enter your message" disabled />
+<br><br>
+
+<!-- Input for recipient's username -->
+<input type="text" id="recipientInput" placeholder="Enter recipient's username" disabled />
+<br><br>
+
+<!-- Button to send a private message -->
+<button id="sendMessageButton" onclick="sendMessage()" disabled>Send Private Message</button>
+
+<script type="text/javascript">
+    var stompClient = null;
+    var username = null;
+
+    // Function to connect to WebSocket after entering the user's name
+    function connect() {
+        username = document.getElementById("nameInput").value.trim();
+
+        if (!username) {
+            alert("Please enter your name to join the chat!");
+            return;
+        }
+
+        // Enable message input and recipient input after joining
+        document.getElementById("messageInput").disabled = false;
+        document.getElementById("recipientInput").disabled = false;
+        document.getElementById("sendMessageButton").disabled = false;
+
+        var socket = new SockJS('http://localhost:8080/chat');  // WebSocket endpoint
+        stompClient = Stomp.over(socket);
+
+        // Connect to the WebSocket server
+        stompClient.connect({}, function(frame) {
+            console.log('Connected: ' + frame);
+
+            // Subscribe to your own private channel
+            stompClient.subscribe('/user/' + username + '/queue/messages', function(messageOutput) {
+                console.log("Private message received for " + username + ": ", messageOutput.body);
+                showMessage(JSON.parse(messageOutput.body), true);  // Handle private message
+            });
+
+            // Notify the server that the user has joined
+            stompClient.send("/app/chat.addUser", {}, JSON.stringify({ sender: username }));
+        });
+    }
+
+    // Function to send a private message to multiple recipients
+    function sendMessage() {
+        var messageContent = document.getElementById("messageInput").value;
+        var recipients = document.getElementById("recipientInput").value.split(',');  // Handle multiple recipients
+
+        if (messageContent && recipients.length > 0 && stompClient) {
+            recipients.forEach(function(recipient) {
+                recipient = recipient.trim();  // Remove any extra spaces
+
+                if (recipient) {
+                    var chatMessage = {
+                        sender: username,  // Use the name entered by the user
+                        recipient: recipient,  // Send to each specified recipient
+                        content: messageContent,
+                        type: 'CHAT'  // Message type
+                    };
+
+                    // Send the private message to the server for each recipient
+                    console.log("Sending message to " + recipient + ": ", chatMessage);
+                    stompClient.send("/app/chat", {}, JSON.stringify(chatMessage));
+
+                    // Show the message in the sender's own chat window
+                    showMessage(chatMessage, true);  // Display the message you just sent as private in your own chat
+                }
+            });
+
+            // Clear the input fields after sending
+            document.getElementById("messageInput").value = '';
+            document.getElementById("recipientInput").value = '';
+        } else {
+            alert("Please enter a message and at least one recipient.");
+        }
+    }
+
+    // Function to display received messages (private messages)
+    function showMessage(message, isPrivate) {
+        console.log("Displaying message: ", message);  // Log the message being displayed
+
+        var messageElement = document.createElement('li');
+        var messageText = message.sender + ": " + message.content;
+
+        // Display private message indicator
+        if (isPrivate) {
+            messageText += " (Private)";
+        }
+
+        messageElement.appendChild(document.createTextNode(messageText));
+        document.getElementById("messageList").appendChild(messageElement);
+        console.log("Message added to list: ", messageText);  // Log when the message is added to the list
+
+        // Scroll the chat window to the bottom
+        var chatWindow = document.getElementById("chat");
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+</script>
+</body>
+</html>
